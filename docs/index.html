@@ -273,18 +273,19 @@
                 <button key={d} onClick={()=>setDayIndex(i)} className={["px-3 py-1.5 rounded-xl text-sm border", i===dayIndex ? (dark?"bg-neutral-800 border-neutral-600 text-white":"bg-blue-600 border-blue-600 text-white") : (dark?"border-neutral-700 text-neutral-200":"border-neutral-300 text-neutral-700 hover:bg-neutral-100")].join(' ')}>{d}</button>
               ))}
             </div>
-            <DayGrid
-              date={currentDate} dayKey={dayKey}
-              people={people} shifts={dayShifts} pto={pto}
-              dark={dark} tz={tz}
-              canEdit={canEdit} editMode={editMode}
-              onRemove={(id)=>{
-                if (!canEdit) { alert('Enter the password in Manage to enable editing.'); return; }
-                onRemoveShift(id);
-            />
-          </section>
-        );
-      }
+                <DayGrid
+                  date={currentDate} dayKey={dayKey}
+                  people={people} shifts={dayShifts} pto={pto}
+                  dark={dark} tz={tz}
+                  canEdit={canEdit} editMode={editMode}
+                  onRemove={(id)=>{
+                    if (!canEdit) { alert('Enter the password in Manage to enable editing.'); return; }
+                    onRemoveShift(id);
+                  }}
+                />
+              </section>
+          );
+        }
 
       function ManagePage({ dark, weekStart, shifts, setShifts, pto, setPto, tz }){
         // ----- password gate hooks (always called) -----
