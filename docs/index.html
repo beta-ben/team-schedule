@@ -224,22 +224,35 @@
                   <span className="mb-1">Week start (Mon)</span>
                   <input className={["border rounded-lg px-3 py-2", dark&&"bg-neutral-900 border-neutral-700"].filter(Boolean).join(' ')} type="date" value={weekStart} onChange={e=>setWeekStart(e.target.value)} />
                 </label>
-                {view==='schedule' && canEdit && (
+                {view==='schedule' && (
                   <label className="flex items-center gap-2 text-sm">
                     <span className="hidden md:inline">Edit schedule</span>
                     <button
-                      role="switch" aria-checked={editMode}
-                      onClick={()=>setEditMode(v=>!v)}
-                      className={["w-12 h-7 rounded-full border relative transition",
-                                  dark?"bg-neutral-700 border-neutral-600":"bg-neutral-300 border-neutral-400"].join(' ')}
+                      role="switch"
+                      aria-checked={editMode}
+                      onClick={()=>{
+                        if (!canEdit) {
+                          alert('Enter the password in Manage to enable editing.');
+                          return;
+                        }
+                        setEditMode(v=>!v);
+                      }}
+                      className={[
+                        "w-12 h-7 rounded-full border relative transition",
+                        dark ? "bg-neutral-700 border-neutral-600" : "bg-neutral-300 border-neutral-400",
+                        !canEdit ? "opacity-50 cursor-not-allowed" : ""
+                      ].join(' ')}
                     >
-                      <span className={[
-                        "absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform",
-                        editMode ? "translate-x-5" : "translate-x-0"
-                      ].join(' ')} />
+                      <span
+                        className={[
+                          "absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform",
+                          editMode ? "translate-x-5" : "translate-x-0"
+                        ].join(' ')}
+                      />
                     </button>
                   </label>
                 )}
+
 
               </div>
             </div>
@@ -265,7 +278,9 @@
               people={people} shifts={dayShifts} pto={pto}
               dark={dark} tz={tz}
               canEdit={canEdit} editMode={editMode}
-              onRemove={onRemoveShift}
+              onRemove={(id)=>{
+                if (!canEdit) { alert('Enter the password in Manage to enable editing.'); return; }
+                onRemoveShift(id);
             />
           </section>
         );
@@ -602,7 +617,7 @@
                            className="absolute rounded text-[11px] border"
                            style={{left:`${left}%`,width:`${width}%`,backgroundColor:dark?darkbg:light,borderColor:dark?darkbd:`hsl(${H},65%,50%)`,zIndex:1}}>
                         {/* ⬇️ NEW delete button */}
-                        {(canEdit && editMode) && (
+                        {editMode && (
                           <button
                             onClick={(e)=>{ e.stopPropagation(); onRemove?.(s.id); }}
                             title="Delete shift"
