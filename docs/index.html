@@ -4,19 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Team Schedule — GH Pages</title>
-    <!-- Tailwind (Play CDN) for rapid styling; safe for GH Pages quick deploy -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React 18 + ReactDOM UMD -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- Babel Standalone to transpile JSX in-browser (no build step) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <style>
-      html, body, #root { height: 100%; }
-    </style>
+    <style>html, body, #root { height: 100%; }</style>
   </head>
   <body class="min-h-screen">
-    <!-- Password Gate -->
     <div id="gate" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
       <form class="w-full max-w-sm bg-white rounded-2xl shadow p-5 space-y-3" onsubmit="return window.__onGateSubmit(event)">
         <div class="text-lg font-semibold">Protected</div>
@@ -27,53 +21,29 @@
       </form>
     </div>
 
-    <!-- App Root -->
     <div id="root"></div>
 
-    <!-- Simple client-side password protection (best-effort only) -->
     <script>
       (function(){
         const EXPECTED_HASH = 'ee911526aebdce00e671ff8966617cb8cbcff697709ae094a3b9df46db226f34'; // sha256('betacares')
-        async function sha256Hex(s){
-          const enc = new TextEncoder().encode(s);
-          const buf = await crypto.subtle.digest('SHA-256', enc);
-          return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-        }
-        window.__renderApp = function(){
-          const root = ReactDOM.createRoot(document.getElementById('root'));
-          root.render(React.createElement(App));
-        };
-        window.__onGateSubmit = async function(e){
-          e.preventDefault();
-          const pw = document.getElementById('gate-pw').value || '';
-          const h = await sha256Hex(pw);
-          if(h === EXPECTED_HASH){
-            localStorage.setItem('schedule_pw_hash', h);
-            document.getElementById('gate').style.display='none';
-            window.__renderApp();
-          }else{
-            document.getElementById('gate-msg').textContent = 'Wrong password. Try again.';
-          }
-          return false;
-        };
-        async function tryAuto(){
-          const saved = localStorage.getItem('schedule_pw_hash');
-          if(saved === EXPECTED_HASH){
-            window.__renderApp();
-          }else{
-            document.getElementById('gate').style.display='flex';
-            document.getElementById('gate-pw').focus();
-          }
-        }
+        async function sha256Hex(s){ const enc = new TextEncoder().encode(s); const buf = await crypto.subtle.digest('SHA-256', enc); return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join(''); }
+        window.__renderApp = function(){ const root = ReactDOM.createRoot(document.getElementById('root')); root.render(React.createElement(App)); };
+        window.__onGateSubmit = async function(e){ e.preventDefault(); const pw = document.getElementById('gate-pw').value || ''; const h = await sha256Hex(pw); if(h === EXPECTED_HASH){ localStorage.setItem('schedule_pw_hash', h); document.getElementById('gate').style.display='none'; window.__renderApp(); } else { document.getElementById('gate-msg').textContent='Wrong password. Try again.'; } return false; };
+        async function tryAuto(){ const saved = localStorage.getItem('schedule_pw_hash'); if(saved === EXPECTED_HASH){ window.__renderApp(); } else { document.getElementById('gate').style.display='flex'; document.getElementById('gate-pw').focus(); } }
         window.addEventListener('DOMContentLoaded', tryAuto);
       })();
     </script>
 
-    <!-- The App (your current canvas code, adapted for in-browser Babel) -->
+    <!-- Inject these before the app loads to enable shared persistence:
+    <script>
+      window.SCHEDULE_API_BASE = "https://team-schedule-api.<your-subdomain>.workers.dev";
+      window.SCHEDULE_WRITE_PASSWORD = "betacares";
+    </script>
+    -->
+
     <script type="text/babel" data-presets="env,react">
       const { useMemo, useState, useEffect } = React;
 
-      // === Constants ===
       const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
       const TZ_OPTS = [
         { id: "America/Los_Angeles", label: "PT", offset: 0 },
@@ -82,38 +52,27 @@
         { id: "America/New_York", label: "ET", offset: 3 }
       ];
 
-      // === Utilities ===
+      const API_BASE = (typeof window !== 'undefined' && window.SCHEDULE_API_BASE) || "";
+      const WRITE_PASS = (typeof window !== 'undefined' && window.SCHEDULE_WRITE_PASSWORD) || "betacares";
+
+      async function cloudGet(){ if(!API_BASE) return null; try{ const r=await fetch(API_BASE.replace(/\/$/,'')+'/v1/schedule'); if(!r.ok) return null; return await r.json(); }catch{ return null; }}
+      async function cloudPost(data){ if(!API_BASE) return false; try{ const r=await fetch(API_BASE.replace(/\/$/,'')+'/v1/schedule',{ method:'POST', headers:{'Content-Type':'application/json','X-Admin-Password':WRITE_PASS}, body:JSON.stringify(data) }); return r.ok; }catch{ return false; } }
+
       function uid() { return Math.random().toString(36).slice(2, 9); }
-      function toMin(hhmm) { const [h,m] = hhmm.split(":").map(Number); return h*60 + (m||0); }
+      function toMin(hhmm) { const [h,m]=hhmm.split(":").map(Number); return h*60+(m||0); }
       function parseYMD(s){ const [y,m,d]=s.split("-").map(Number); return new Date(y,m-1,d); }
       function addDays(d,n){ const nd=new Date(d); nd.setDate(d.getDate()+n); return nd; }
       function fmtYMD(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
       function startOfWeek(d){ const day=d.getDay(); const diff=(day===0?-6:1)-day; const m=new Date(d); m.setDate(d.getDate()+diff); m.setHours(0,0,0,0); return m; }
       function minToHHMM(min){ const m=((min%1440)+1440)%1440; const h=Math.floor(m/60); const mm=m%60; return `${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}`; }
-      function isoWeek(date){
-        const d=new Date(Date.UTC(date.getFullYear(),date.getMonth(),date.getDate()));
-        const dayNum=d.getUTCDay()||7; d.setUTCDate(d.getUTCDate()+4-dayNum);
-        const yearStart=new Date(Date.UTC(d.getUTCFullYear(),0,1));
-        const week=Math.ceil(((((d-yearStart)/86400000)+1)/7));
-        return {year:d.getUTCFullYear(),week};
-      }
+      function isoWeek(date){ const d=new Date(Date.UTC(date.getFullYear(),date.getMonth(),date.getDate())); const dayNum=d.getUTCDay()||7; d.setUTCDate(d.getUTCDate()+4-dayNum); const yearStart=new Date(Date.UTC(d.getUTCFullYear(),0,1)); const week=Math.ceil(((((d-yearStart)/86400000)+1)/7)); return {year:d.getUTCFullYear(),week}; }
       function fmtNice(d){ return d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}); }
+      function isValidHHMM(v){ if(!/^\d{2}:\d{2}$/.test(v)) return false; const [h,m]=v.split(":").map(Number); if(h<0||h>24) return false; if(m<0||m>59) return false; if(h===24&&m!==0) return false; return true; }
+      function shiftKeyOf(person,day,start,end){ return person+"|"+day+"|"+start+"|"+end; }
+      function shiftKey(s){ return shiftKeyOf(s.person,s.day,s.start,s.end); }
 
-      function isValidHHMM(v){
-        if(!/^\d{2}:\d{2}$/.test(v)) return false;
-        const [h,m] = v.split(":").map(Number);
-        if(h<0||h>24) return false;
-        if(m<0||m>59) return false;
-        if(h===24 && m!==0) return false; // only 24:00 allowed
-        return true;
-      }
-
-      function shiftKeyOf(person, day, start, end){ return person+"|"+day+"|"+start+"|"+end; }
-      function shiftKey(s){ return shiftKeyOf(s.person, s.day, s.start, s.end); }
-
-      // === Sample data generation ===
       function generateSample(){
-        const names = Array.from({length:40},(_,i)=>`Agent${i+1}`);
+        const names=Array.from({length:40},(_,i)=>`Agent${i+1}`);
         const shifts=[];
         const pto=[
           { id: uid(), person: "Agent5", startDate: "2025-08-21", endDate: "2025-08-23", notes: "Vacation" },
@@ -122,41 +81,34 @@
         for(const day of DAYS){
           if(day==="Sat"||day==="Sun") continue;
           let nameIdx=0;
-          const slots=[]; let t=6*60; while(t<=17*60+30){ slots.push(t); t += 120 + Math.floor(Math.random()*61); }
+          const slots=[]; let t=6*60; while(t<=17*60+30){ slots.push(t); t+=120+Math.floor(Math.random()*61); }
           for(const slot of slots){
-            const starters = 2 + Math.floor(Math.random()*2);
+            const starters=2+Math.floor(Math.random()*2);
             for(let i=0;i<starters;i++){
-              const person = names[nameIdx % names.length];
-              nameIdx++;
-              const startMin = slot;
-              const endMinRaw = slot + 510; // 8.5h
-              if(endMinRaw<=1440){
-                shifts.push({ id: uid(), person, day, start: minToHHMM(startMin), end: minToHHMM(endMinRaw) });
-              }else{
-                const spill=endMinRaw-1440;
-                shifts.push({ id: uid(), person, day, start: minToHHMM(startMin), end: "24:00" });
-                const nextDay = DAYS[(DAYS.indexOf(day)+1)%7];
-                shifts.push({ id: uid(), person, day: nextDay, start: "00:00", end: minToHHMM(spill) });
-              }
+              const person=names[nameIdx%names.length]; nameIdx++;
+              const startMin=slot; const endMinRaw=slot+510;
+              if(endMinRaw<=1440){ shifts.push({id:uid(),person,day,start:minToHHMM(startMin),end:minToHHMM(endMinRaw)}); }
+              else{ const spill=endMinRaw-1440; shifts.push({id:uid(),person,day,start:minToHHMM(startMin),end:"24:00"}); const nextDay=DAYS[(DAYS.indexOf(day)+1)%7]; shifts.push({id:uid(),person,day:nextDay,start:"00:00",end:minToHHMM(spill)}); }
             }
           }
         }
-        return {shifts, pto};
+        return {shifts,pto};
       }
+      const SAMPLE=generateSample();
 
-      const SAMPLE = generateSample();
-
-      // === App ===
       function App(){
-        const [view,setView] = useState("schedule");
-        const [weekStart,setWeekStart] = useState(()=>fmtYMD(startOfWeek(new Date())));
-        const [dayIndex,setDayIndex] = useState(()=> new Date().getDay()===0?6:new Date().getDay()-1);
-        const [dark,setDark] = useState(true);
-        const [shifts, setShifts] = useState(SAMPLE.shifts);
-        const [pto, setPto] = useState(SAMPLE.pto);
-        const [tz, setTz] = useState(TZ_OPTS[0]);
+        const [view,setView]=useState("schedule");
+        const [weekStart,setWeekStart]=useState(()=>fmtYMD(startOfWeek(new Date())));
+        const [dayIndex,setDayIndex]=useState(()=> new Date().getDay()===0?6:new Date().getDay()-1);
+        const [dark,setDark]=useState(true);
+        const [shifts,setShifts]=useState(SAMPLE.shifts);
+        const [pto,setPto]=useState(SAMPLE.pto);
+        const [tz,setTz]=useState(TZ_OPTS[0]);
+        const [loadedFromCloud,setLoadedFromCloud]=useState(false);
 
         useEffect(()=>{ runTests(); },[]);
+        useEffect(()=>{ (async()=>{ const data=await cloudGet(); if(data&&Array.isArray(data.shifts)&&Array.isArray(data.pto)){ setShifts(data.shifts); setPto(data.pto);} setLoadedFromCloud(true); })(); },[]);
+        useEffect(()=>{ if(!loadedFromCloud) return; const t=setTimeout(()=>{ cloudPost({shifts,pto,updatedAt:new Date().toISOString()}); },600); return ()=>clearTimeout(t); },[shifts,pto,loadedFromCloud]);
 
         return (
           <div className={dark?"min-h-screen w-full bg-neutral-950 text-neutral-100":"min-h-screen w-full bg-neutral-100 text-neutral-900"}>
@@ -172,11 +124,10 @@
         );
       }
 
-      // === Top Bar ===
       function TopBar({ dark, setDark, view, setView, weekStart, setWeekStart, tz, setTz }){
-        const weekStartDate = parseYMD(weekStart);
-        const weekEndDate = addDays(weekStartDate, 6);
-        const iw = isoWeek(weekStartDate);
+        const weekStartDate=parseYMD(weekStart);
+        const weekEndDate=addDays(weekStartDate,6);
+        const iw=isoWeek(weekStartDate);
         return (
           <header className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -185,7 +136,7 @@
                 <div className="flex items-center gap-2 text-sm font-medium">{fmtNice(weekStartDate)} – {fmtNice(weekEndDate)}</div>
                 <label className="flex items-center gap-2 text-sm">
                   <span className="hidden md:inline">Dark</span>
-                  <button role="switch" aria-checked={dark} onClick={()=>setDark(function(v){return !v;})} className={["w-12 h-7 rounded-full border relative transition", dark?"bg-neutral-700 border-neutral-600":"bg-neutral-300 border-neutral-400"].join(' ')}>
+                  <button role="switch" aria-checked={dark} onClick={()=>setDark(v=>!v)} className={["w-12 h-7 rounded-full border relative transition", dark?"bg-neutral-700 border-neutral-600":"bg-neutral-300 border-neutral-400"].join(' ')}>
                     <span className={["absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform", dark?"translate-x-5":"translate-x-0"].join(' ')} />
                   </button>
                 </label>
@@ -199,13 +150,13 @@
               <div className="flex items-end gap-4">
                 <label className="flex flex-col text-sm">
                   <span className="mb-1">Timezone</span>
-                  <select className={["border rounded-lg px-3 py-2", dark&&"bg-neutral-900 border-neutral-700"].filter(Boolean).join(' ')} value={tz.id} onChange={function(e){ var opt = TZ_OPTS.find(function(x){return x.id===e.target.value;}); if(opt) setTz(opt); }}>
-                    {TZ_OPTS.map(function(o){return (<option key={o.id} value={o.id}>{o.label}</option>);})}
+                  <select className={["border rounded-lg px-3 py-2", dark&&"bg-neutral-900 border-neutral-700"].filter(Boolean).join(' ')} value={tz.id} onChange={e=>{ const opt=TZ_OPTS.find(x=>x.id===e.target.value); if(opt) setTz(opt); }}>
+                    {TZ_OPTS.map(o => (<option key={o.id} value={o.id}>{o.label}</option>))}
                   </select>
                 </label>
                 <label className="flex flex-col text-sm">
                   <span className="mb-1">Week start (Mon)</span>
-                  <input className={["border rounded-lg px-3 py-2", dark&&"bg-neutral-900 border-neutral-700"].filter(Boolean).join(' ')} type="date" value={weekStart} onChange={function(e){setWeekStart(e.target.value);}} />
+                  <input className={["border rounded-lg px-3 py-2", dark&&"bg-neutral-900 border-neutral-700"].filter(Boolean).join(' ')} type="date" value={weekStart} onChange={e=>setWeekStart(e.target.value)} />
                 </label>
               </div>
             </div>
@@ -213,18 +164,17 @@
         );
       }
 
-      // === Pages ===
       function SchedulePage({ dark, weekStart, dayIndex, setDayIndex, shifts, pto, tz }){
-        const currentDate = addDays(parseYMD(weekStart), dayIndex);
-        const dayKey = DAYS[dayIndex];
-        const dayShifts = useMemo(function(){ return shifts.filter(function(s){return s.day===dayKey;}).sort(function(a,b){return toMin(a.start)-toMin(b.start);}); },[shifts,dayKey]);
-        const people = useMemo(function(){ return Array.from(new Set(dayShifts.map(function(s){return s.person;}))); },[dayShifts]);
+        const currentDate=addDays(parseYMD(weekStart), dayIndex);
+        const dayKey=DAYS[dayIndex];
+        const dayShifts=useMemo(()=>shifts.filter(s=>s.day===dayKey).sort((a,b)=>toMin(a.start)-toMin(b.start)),[shifts,dayKey]);
+        const people=useMemo(()=>Array.from(new Set(dayShifts.map(s=>s.person))),[dayShifts]);
         return (
           <section className={["rounded-2xl p-2", dark?"bg-neutral-900":"bg-white shadow-sm"].join(' ')}>
             <div className="flex flex-wrap gap-3 mb-3">
-              {DAYS.map(function(d,i){ return (
-                <button key={d} onClick={function(){setDayIndex(i);}} className={["px-3 py-1.5 rounded-xl text-sm border", i===dayIndex ? (dark?"bg-neutral-800 border-neutral-600 text-white":"bg-blue-600 border-blue-600 text-white") : (dark?"border-neutral-700 text-neutral-200":"border-neutral-300 text-neutral-700 hover:bg-neutral-100")].join(' ')}>{d}</button>
-              );})}
+              {DAYS.map((d,i)=>(
+                <button key={d} onClick={()=>setDayIndex(i)} className={["px-3 py-1.5 rounded-xl text-sm border", i===dayIndex ? (dark?"bg-neutral-800 border-neutral-600 text-white":"bg-blue-600 border-blue-600 text-white") : (dark?"border-neutral-700 text-neutral-200":"border-neutral-300 text-neutral-700 hover:bg-neutral-100")].join(' ')}>{d}</button>
+              ))}
             </div>
             <DayGrid date={currentDate} dayKey={dayKey} people={people} shifts={dayShifts} pto={pto} dark={dark} tz={tz} />
           </section>
@@ -233,105 +183,79 @@
 
       function ManagePage({ dark, weekStart, shifts, setShifts, pto, setPto, tz }){
         const weekStartDate=parseYMD(weekStart);
-        const [tab, setTab] = useState('shifts');
-
-        // Shift form state
-        const [person, setPerson] = useState('');
-        const [daysSel, setDaysSel] = useState(function(){ return new Set([DAYS[0]]); });
-        const [start, setStart] = useState('09:00');
-        const [end, setEnd] = useState('17:30');
-
-        // PTO state
-        const [ptoPerson, setPtoPerson] = useState('');
-        const [ptoStart, setPtoStart] = useState(fmtYMD(weekStartDate));
-        const [ptoEnd, setPtoEnd] = useState(fmtYMD(addDays(weekStartDate, 1)));
-        const [ptoNotes, setPtoNotes] = useState('');
-
-        // Notices
-        const [notice, setNotice] = useState(null);
-
-        const allPeople = useMemo(function(){ return Array.from(new Set(shifts.map(function(s){return s.person;}))).sort(); },[shifts]);
-
+        const [tab,setTab]=useState('shifts');
+        const [person,setPerson]=useState('');
+        const [daysSel,setDaysSel]=useState(()=> new Set([DAYS[0]]));
+        const [start,setStart]=useState('09:00');
+        const [end,setEnd]=useState('17:30');
+        const [ptoPerson,setPtoPerson]=useState('');
+        const [ptoStart,setPtoStart]=useState(fmtYMD(weekStartDate));
+        const [ptoEnd,setPtoEnd]=useState(fmtYMD(addDays(weekStartDate,1)));
+        const [ptoNotes,setPtoNotes]=useState('');
+        const [notice,setNotice]=useState(null);
+        const allPeople=useMemo(()=>Array.from(new Set(shifts.map(s=>s.person))).sort(),[shifts]);
         function selectWeekdays(){ setDaysSel(new Set(DAYS.slice(0,5))); }
         function selectAll(){ setDaysSel(new Set(DAYS)); }
         function selectNone(){ setDaysSel(new Set()); }
-
         function addShift(){
           setNotice(null);
-          if(!person.trim()) { alert('Enter a person name'); return; }
-          if(daysSel.size===0) { alert('Select at least one day'); return; }
-          if(!isValidHHMM(start) || !isValidHHMM(end)) { alert('Times must be HH:MM (00:00–24:00) with 24:00 only as an end time'); return; }
-          var sMin = toMin(start); var eMin = toMin(end);
-          if(eMin<=sMin && end!=="24:00") { alert('End must be after start (or exactly 24:00)'); return; }
-
-          var p = person.trim();
-          var days = Array.from(daysSel);
-          var existing = new Set(shifts.map(shiftKey));
-          var dupDays = days.filter(function(d){ return existing.has(shiftKeyOf(p, d, start, end)); });
-          var toAddDays = days.filter(function(d){ return !existing.has(shiftKeyOf(p, d, start, end)); });
-
-          if(dupDays.length>0){
-            setNotice('Duplicate shift skipped for: ' + dupDays.join(', '));
-          }
-          if(toAddDays.length===0){
-            return; // all were duplicates
-          }
-
-          var recs = toAddDays.map(function(day){ return ({ id: uid(), person: p, day: day, start: start, end: end }); });
-          setShifts(function(prev){ return prev.concat(recs); });
+          if(!person.trim()) return alert('Enter a person name');
+          if(daysSel.size===0) return alert('Select at least one day');
+          if(!isValidHHMM(start) || !isValidHHMM(end)) return alert('Times must be HH:MM (00:00–24:00) with 24:00 only as an end time');
+          const sMin=toMin(start), eMin=toMin(end);
+          if(eMin<=sMin && end!=="24:00") return alert('End must be after start (or exactly 24:00)');
+          const p=person.trim();
+          const days=Array.from(daysSel);
+          const existing=new Set(shifts.map(shiftKey));
+          const dupDays=days.filter(d=>existing.has(shiftKeyOf(p,d,start,end)));
+          const toAddDays=days.filter(d=>!existing.has(shiftKeyOf(p,d,start,end)));
+          if(dupDays.length>0) setNotice('Duplicate shift skipped for: '+dupDays.join(', '));
+          if(toAddDays.length===0) return;
+          const recs=toAddDays.map(day=>({ id:uid(), person:p, day, start, end }));
+          setShifts(prev=>prev.concat(recs));
           setStart(end);
         }
-
-        function removeShift(id){ setShifts(function(prev){ return prev.filter(function(s){return s.id!==id;}); }); }
-
+        function removeShift(id){ setShifts(prev=>prev.filter(s=>s.id!==id)); }
         function addPto(){
-          if(!ptoPerson.trim()) { alert('Enter a person name'); return; }
-          var sd = parseYMD(ptoStart); var ed = parseYMD(ptoEnd);
-          if(!(sd instanceof Date) || isNaN(sd.getTime()) || !(ed instanceof Date) || isNaN(ed.getTime())) { alert('Invalid dates'); return; }
-          if(sd>ed) { alert('End date must be on/after start date'); return; }
-          var rec = { id: uid(), person: ptoPerson.trim(), startDate: ptoStart, endDate: ptoEnd, notes: ptoNotes };
-          setPto(function(prev){ return prev.concat([rec]); });
+          if(!ptoPerson.trim()) return alert('Enter a person name');
+          const sd=parseYMD(ptoStart), ed=parseYMD(ptoEnd);
+          if(!(sd instanceof Date)||isNaN(sd.getTime())||!(ed instanceof Date)||isNaN(ed.getTime())) return alert('Invalid dates');
+          if(sd>ed) return alert('End date must be on/after start date');
+          setPto(prev=>prev.concat([{ id:uid(), person:ptoPerson.trim(), startDate:ptoStart, endDate:ptoEnd, notes:ptoNotes }]));
         }
-        function removePto(id){ setPto(function(prev){ return prev.filter(function(p){return p.id!==id;}); }); }
-
+        function removePto(id){ setPto(prev=>prev.filter(p=>p.id!==id)); }
         function exportData(){
-          var data = JSON.stringify({ shifts: shifts, pto: pto }, null, 2);
+          const data=JSON.stringify({shifts,pto},null,2);
           try{
-            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-              navigator.clipboard.writeText(data).catch(function(){});
-            } else {
-              var ta=document.createElement('textarea');
-              ta.value=data; document.body.appendChild(ta); ta.select();
-              try{ document.execCommand('copy'); }catch(err){}
-              document.body.removeChild(ta);
-            }
+            if(navigator.clipboard&&typeof navigator.clipboard.writeText==='function') navigator.clipboard.writeText(data).catch(()=>{});
+            else{ const ta=document.createElement('textarea'); ta.value=data; document.body.appendChild(ta); ta.select(); try{document.execCommand('copy');}catch(e){} document.body.removeChild(ta); }
             alert('Copied JSON to clipboard.');
-          }catch(err){
-            console.warn('Copy failed', err);
-          }
+          }catch(e){ console.warn('Copy failed',e); }
         }
-
         return (
           <section className={["rounded-2xl p-2 space-y-3", dark?"bg-neutral-900":"bg-white shadow-sm"].join(' ')}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex gap-2">
-                <button onClick={function(){setTab('shifts');}} className={['px-3 py-1.5 rounded-lg border text-sm', tab==='shifts' ? (dark?"bg-neutral-800 border-neutral-600":"bg-blue-600 border-blue-600 text-white") : (dark?"border-neutral-700":"border-neutral-300")].join(' ')}>Shifts</button>
-                <button onClick={function(){setTab('pto');}} className={['px-3 py-1.5 rounded-lg border text-sm', tab==='pto' ? (dark?"bg-neutral-800 border-neutral-600":"bg-blue-600 border-blue-600 text-white") : (dark?"border-neutral-700":"border-neutral-300")].join(' ')}>PTO</button>
+                <button onClick={()=>setTab('shifts')} className={['px-3 py-1.5 rounded-lg border text-sm', tab==='shifts' ? (dark?'bg-neutral-800 border-neutral-600':'bg-blue-600 border-blue-600 text-white') : (dark?'border-neutral-700':'border-neutral-300')].join(' ')}>Shifts</button>
+                <button onClick={()=>setTab('pto')} className={['px-3 py-1.5 rounded-lg border text-sm', tab==='pto' ? (dark?'bg-neutral-800 border-neutral-600':'bg-blue-600 border-blue-600 text-white') : (dark?'border-neutral-700':'border-neutral-300')].join(' ')}>PTO</button>
               </div>
               <div className="flex gap-2">
-                <button onClick={exportData} className={['px-3 py-1.5 rounded-lg border text-sm', dark?"border-neutral-600":"border-neutral-300"].join(' ')}>Export JSON</button>
+                <button onClick={exportData} className={['px-3 py-1.5 rounded-lg border text-sm', dark?'border-neutral-600':'border-neutral-300'].join(' ')}>Export JSON</button>
+                {API_BASE && (<>
+                  <button onClick={async()=>{ const data=await cloudGet(); if(data?.shifts&&data?.pto){ setShifts(data.shifts); setPto(data.pto); } }} className={['px-3 py-1.5 rounded-lg border text-sm', dark?'border-neutral-600':'border-neutral-300'].join(' ')}>Load Cloud</button>
+                  <button onClick={async()=>{ await cloudPost({shifts, pto, updatedAt:new Date().toISOString()}); }} className={['px-3 py-1.5 rounded-lg border text-sm', dark?'border-neutral-600':'border-neutral-300'].join(' ')}>Save Cloud</button>
+                </>)}
               </div>
             </div>
 
             {tab==='shifts' ? (
-              <div className={['rounded-xl p-3', dark?"bg-neutral-950":"bg-neutral-50"].join(' ')}>
-                {/* Control card aligned */}
+              <div className={['rounded-xl p-3', dark?'bg-neutral-950':'bg-neutral-50'].join(' ')}>
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start lg:items-end">
                   <div className="lg:col-span-3">
                     <label className="text-sm flex flex-col">
                       <span className="mb-1">Name</span>
-                      <input list="people" className={["w-full border rounded-xl px-3 py-2", dark&&"bg-neutral-900 border-neutral-700"].filter(Boolean).join(' ')} value={person} onChange={function(e){setPerson(e.target.value);}} placeholder="Agent name" />
-                      <datalist id="people">{allPeople.map(function(p){ return <option key={p} value={p} />; })}</datalist>
+                      <input list="people" className={['w-full border rounded-xl px-3 py-2', dark&&'bg-neutral-900 border-neutral-700'].filter(Boolean).join(' ')} value={person} onChange={e=>setPerson(e.target.value)} placeholder="Agent name" />
+                      <datalist id="people">{allPeople.map(p => <option key={p} value={p} />)}</datalist>
                     </label>
                   </div>
 
@@ -340,9 +264,9 @@
                       <legend className="mb-2 font-medium">Days</legend>
                       <DayPills value={daysSel} onChange={setDaysSel} dark={dark} />
                       <div className="mt-2 flex gap-2 text-xs">
-                        <button onClick={selectWeekdays} className={['px-2 py-1 rounded-lg border', dark?"border-neutral-700":"border-neutral-300"].join(' ')}>Weekdays</button>
-                        <button onClick={selectAll} className={['px-2 py-1 rounded-lg border', dark?"border-neutral-700":"border-neutral-300"].join(' ')}>All</button>
-                        <button onClick={selectNone} className={['px-2 py-1 rounded-lg border', dark?"border-neutral-700":"border-neutral-300"].join(' ')}>None</button>
+                        <button onClick={selectWeekdays} className={['px-2 py-1 rounded-lg border', dark?'border-neutral-700':'border-neutral-300'].join(' ')}>Weekdays</button>
+                        <button onClick={selectAll} className={['px-2 py-1 rounded-lg border', dark?'border-neutral-700':'border-neutral-300'].join(' ')}>All</button>
+                        <button onClick={selectNone} className={['px-2 py-1 rounded-lg border', dark?'border-neutral-700':'border-neutral-300'].join(' ')}>None</button>
                       </div>
                     </fieldset>
                   </div>
@@ -351,31 +275,28 @@
                     <div className="grid grid-cols-2 gap-3">
                       <label className="text-sm flex flex-col">
                         <span className="mb-1">Start</span>
-                        <input className={["w-full border rounded-xl px-3 py-2", dark&&"bg-neutral-900 border-neutral-700"].filter(Boolean).join(' ')} type="time" value={start} onChange={function(e){setStart(e.target.value);}} />
+                        <input className={['w-full border rounded-xl px-3 py-2', dark&&'bg-neutral-900 border-neutral-700'].filter(Boolean).join(' ')} type="time" value={start} onChange={e=>setStart(e.target.value)} />
                       </label>
                       <label className="text-sm flex flex-col">
                         <span className="mb-1">End</span>
-                        <input className={["w-full border rounded-xl px-3 py-2", dark&&"bg-neutral-900 border-neutral-700"].filter(Boolean).join(' ')} type="time" value={end} onChange={function(e){setEnd(e.target.value);}} />
+                        <input className={['w-full border rounded-xl px-3 py-2', dark&&'bg-neutral-900 border-neutral-700'].filter(Boolean).join(' ')} type="time" value={end} onChange={e=>setEnd(e.target.value)} />
                       </label>
                     </div>
                   </div>
 
-                  {/* Align Add button with start/end on desktop */}
                   <div className="lg:col-span-1 flex lg:block items-end lg:self-end">
-                    <button onClick={addShift} className={["h-[42px] rounded-xl border font-medium px-4 w-full lg:w-auto", dark?"bg-neutral-800 border-neutral-700":"bg-blue-600 border-blue-600 text-white"].join(' ')}>Add</button>
+                    <button onClick={addShift} className={['h-[42px] rounded-xl border font-medium px-4 w-full lg:w-auto', dark?'bg-neutral-800 border-neutral-700':'bg-blue-600 border-blue-600 text-white'].join(' ')}>Add</button>
                   </div>
                 </div>
 
-                {/* Helper + notices below the row so they don't affect alignment */}
                 <div className="mt-2 space-y-2">
                   <div className="text-[11px] opacity-60">Use 24:00 for end if someone works to midnight.</div>
                   {notice && (
-                    <div className={['rounded-md px-3 py-2 text-sm border', dark?"bg-yellow-950/40 border-yellow-700 text-yellow-200":"bg-yellow-50 border-yellow-300 text-yellow-800"].join(' ')}>{notice}</div>
+                    <div className={['rounded-md px-3 py-2 text-sm border', dark?'bg-yellow-950/40 border-yellow-700 text-yellow-200':'bg-yellow-50 border-yellow-300 text-yellow-800'].join(' ')}>{notice}</div>
                   )}
                 </div>
 
-                {/* Table */}
-                <div className="mt-5 max-h-80 overflow-auto rounded-xl border" style={{borderColor: dark?"#3f3f46":"#e5e7eb"}}>
+                <div className="mt-5 max-h-80 overflow-auto rounded-xl border" style={{borderColor: dark?'#3f3f46':'#e5e7eb'}}>
                   <table className="w-full text-sm">
                     <thead className={dark?"bg-neutral-900":"bg-neutral-100"}>
                       <tr>
@@ -387,20 +308,17 @@
                       </tr>
                     </thead>
                     <tbody>
-                      {shifts
-                        .slice()
-                        .sort(function(a,b){ return (DAYS.indexOf(a.day)-DAYS.indexOf(b.day)) || (toMin(a.start)-toMin(b.start)) || a.person.localeCompare(b.person); })
-                        .map(function(s){ return (
+                      {shifts.slice().sort((a,b)=> (DAYS.indexOf(a.day)-DAYS.indexOf(b.day)) || (toMin(a.start)-toMin(b.start)) || a.person.localeCompare(b.person)).map(s => (
                         <tr key={s.id} className={dark?"border-t border-neutral-800":"border-t border-neutral-200"}>
                           <td className="p-2">{s.person}</td>
                           <td className="p-2">{s.day}</td>
                           <td className="p-2">{s.start}</td>
                           <td className="p-2">{s.end}</td>
                           <td className="p-2">
-                            <button onClick={function(){removeShift(s.id);}} className={['px-2 py-1 rounded border text-xs', dark?"border-red-400 text-red-300":"border-red-300 text-red-700"].join(' ')}>Delete</button>
+                            <button onClick={()=>removeShift(s.id)} className={['px-2 py-1 rounded border text-xs', dark?'border-red-400 text-red-300':'border-red-300 text-red-700'].join(' ')}>Delete</button>
                           </td>
                         </tr>
-                      );})}
+                      ))}
                       {shifts.length===0 && (
                         <tr><td colSpan={5} className="p-3 text-center opacity-60">No shifts yet</td></tr>
                       )}
@@ -409,30 +327,30 @@
                 </div>
               </div>
             ) : (
-              <div className={['rounded-xl p-3', dark?"bg-neutral-950":"bg-neutral-50"].join(' ')}>
+              <div className={['rounded-xl p-3', dark?'bg-neutral-950':'bg-neutral-50'].join(' ')}>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-start">
                   <label className="text-sm flex flex-col">
                     <span className="mb-1">Name</span>
-                    <input list="people" className={["w-full border rounded-xl px-3 py-2", dark&&"bg-neutral-900 border-neutral-700"].filter(Boolean).join(' ')} value={ptoPerson} onChange={function(e){setPtoPerson(e.target.value);}} placeholder="Agent name" />
+                    <input list="people" className={['w-full border rounded-xl px-3 py-2', dark&&'bg-neutral-900 border-neutral-700'].filter(Boolean).join(' ')} value={ptoPerson} onChange={e=>setPtoPerson(e.target.value)} placeholder="Agent name" />
                   </label>
                   <label className="text-sm flex flex-col">
                     <span className="mb-1">Start date</span>
-                    <input className={["w-full border rounded-xl px-3 py-2", dark&&"bg-neutral-900 border-neutral-700"].filter(Boolean).join(' ')} type="date" value={ptoStart} onChange={function(e){setPtoStart(e.target.value);}} />
+                    <input className={['w-full border rounded-xl px-3 py-2', dark&&'bg-neutral-900 border-neutral-700'].filter(Boolean).join(' ')} type="date" value={ptoStart} onChange={e=>setPtoStart(e.target.value)} />
                   </label>
                   <label className="text-sm flex flex-col">
                     <span className="mb-1">End date</span>
-                    <input className={["w-full border rounded-xl px-3 py-2", dark&&"bg-neutral-900 border-neutral-700"].filter(Boolean).join(' ')} type="date" value={ptoEnd} onChange={function(e){setPtoEnd(e.target.value);}} />
+                    <input className={['w-full border rounded-xl px-3 py-2', dark&&'bg-neutral-900 border-neutral-700'].filter(Boolean).join(' ')} type="date" value={ptoEnd} onChange={e=>setPtoEnd(e.target.value)} />
                   </label>
                   <label className="text-sm flex flex-col md:col-span-1">
                     <span className="mb-1">Notes</span>
-                    <input className={["w-full border rounded-xl px-3 py-2", dark&&"bg-neutral-900 border-neutral-700"].filter(Boolean).join(' ')} value={ptoNotes} onChange={function(e){setPtoNotes(e.target.value);}} placeholder="Vacation, Appt, etc" />
+                    <input className={['w-full border rounded-xl px-3 py-2', dark&&'bg-neutral-900 border-neutral-700'].filter(Boolean).join(' ')} value={ptoNotes} onChange={e=>setPtoNotes(e.target.value)} placeholder="Vacation, Appt, etc" />
                   </label>
                   <div className="flex items-end">
-                    <button onClick={addPto} className={["h-10 rounded-xl border font-medium px-3", dark?"bg-neutral-800 border-neutral-700":"bg-blue-600 border-blue-600 text-white"].join(' ')}>Add PTO</button>
+                    <button onClick={addPto} className={['h-10 rounded-xl border font-medium px-3', dark?'bg-neutral-800 border-neutral-700':'bg-blue-600 border-blue-600 text-white'].join(' ')}>Add PTO</button>
                   </div>
                 </div>
 
-                <div className="mt-5 max-h-80 overflow-auto rounded-xl border" style={{borderColor: dark?"#3f3f46":"#e5e7eb"}}>
+                <div className="mt-5 max-h-80 overflow-auto rounded-xl border" style={{borderColor: dark?'#3f3f46':'#e5e7eb'}}>
                   <table className="w-full text-sm">
                     <thead className={dark?"bg-neutral-900":"bg-neutral-100"}>
                       <tr>
@@ -444,20 +362,17 @@
                       </tr>
                     </thead>
                     <tbody>
-                      {pto
-                        .slice()
-                        .sort(function(a,b){ return a.person.localeCompare(b.person) || a.startDate.localeCompare(b.startDate); })
-                        .map(function(p){ return (
+                      {pto.slice().sort((a,b)=> a.person.localeCompare(b.person) || a.startDate.localeCompare(b.startDate)).map(p => (
                         <tr key={p.id} className={dark?"border-t border-neutral-800":"border-t border-neutral-200"}>
                           <td className="p-2">{p.person}</td>
                           <td className="p-2">{p.startDate}</td>
                           <td className="p-2">{p.endDate}</td>
                           <td className="p-2">{p.notes||''}</td>
                           <td className="p-2">
-                            <button onClick={function(){removePto(p.id);}} className={['px-2 py-1 rounded border text-xs', dark?"border-red-400 text-red-300":"border-red-300 text-red-700"].join(' ')}>Delete</button>
+                            <button onClick={()=>removePto(p.id)} className={['px-2 py-1 rounded border text-xs', dark?'border-red-400 text-red-300':'border-red-300 text-red-700'].join(' ')}>Delete</button>
                           </td>
                         </tr>
-                      );})}
+                      ))}
                       {pto.length===0 && (
                         <tr><td colSpan={5} className="p-3 text-center opacity-60">No PTO yet</td></tr>
                       )}
@@ -467,68 +382,47 @@
               </div>
             )}
 
-            {/* Week preview */}
             <div className="text-sm opacity-70">Preview</div>
-            {DAYS.map(function(d,i){
-              const dayKey=d; const date=addDays(weekStartDate,i);
-              const dayShifts=shifts.filter(function(s){return s.day===dayKey;}).sort(function(a,b){return toMin(a.start)-toMin(b.start);});
-              const people=Array.from(new Set(dayShifts.map(function(s){return s.person;})));
-              return (
-                <div key={d} className={["rounded-xl p-2", dark?"bg-neutral-950":"bg-neutral-50"].join(' ')}>
-                  <div className="text-sm font-semibold mb-1">{d} <span className="opacity-60">{fmtNice(date)}</span></div>
-                  <DayGrid date={date} dayKey={dayKey} people={people} shifts={dayShifts} pto={pto} dark={dark} tz={tz} />
-                </div>
-              );
-            })}
+            {DAYS.map((d,i)=>{ const dayKey=d; const date=addDays(weekStartDate,i); const dayShifts=shifts.filter(s=>s.day===dayKey).sort((a,b)=>toMin(a.start)-toMin(b.start)); const people=Array.from(new Set(dayShifts.map(s=>s.person))); return (
+              <div key={d} className={['rounded-xl p-2', dark?'bg-neutral-950':'bg-neutral-50'].join(' ')}>
+                <div className="text-sm font-semibold mb-1">{d} <span className="opacity-60">{fmtNice(date)}</span></div>
+                <DayGrid date={date} dayKey={dayKey} people={people} shifts={dayShifts} pto={pto} dark={dark} tz={tz} />
+              </div>
+            ); })}
           </section>
         );
       }
 
-      // === Day Grid ===
       function DayGrid({ date, dayKey, people, shifts, pto, dark, tz }){
         const totalMins=24*60;
-        const tzOffset = tz.offset;
-        const hourMarks=Array.from({length:24},function(_,i){ return (i+tzOffset)%24; });
-        const textSub = dark?"text-neutral-400":"text-neutral-500";
+        const tzOffset=tz.offset;
+        const hourMarks=Array.from({length:24},(_,i)=>(i+tzOffset)%24);
+        const textSub=dark?"text-neutral-400":"text-neutral-500";
 
-        const orderedPeople = useMemo(function(){
-          const firstStart=new Map();
-          people.forEach(function(p){ const starts=shifts.filter(function(s){return s.person===p;}).map(function(s){return toMin(s.start);}); if(starts.length) firstStart.set(p, Math.min.apply(Math, starts)); });
-        return Array.from(firstStart.entries()).sort(function(a,b){return a[1]-b[1]||a[0].localeCompare(b[0]);}).map(function(t){return t[0];});
-        },[people,shifts]);
+        const orderedPeople=useMemo(()=>{ const firstStart=new Map(); people.forEach(p=>{ const starts=shifts.filter(s=>s.person===p).map(s=>toMin(s.start)); if(starts.length) firstStart.set(p, Math.min(...starts)); }); return Array.from(firstStart.entries()).sort((a,b)=>a[1]-b[1]||a[0].localeCompare(b[0])).map(([p])=>p); },[people,shifts]);
 
-        const colorMap = useMemo(function(){
-          const m=new Map();
-          const n=Math.max(1, orderedPeople.length);
-          orderedPeople.forEach(function(p,i){ const h=Math.round((i/n)*360); m.set(p,h); });
-          return m;
-        },[orderedPeople]);
+        const colorMap=useMemo(()=>{ const m=new Map(); const n=Math.max(1,orderedPeople.length); orderedPeople.forEach((p,i)=>{ const h=Math.round((i/n)*360); m.set(p,h); }); return m; },[orderedPeople]);
 
-        // live "now" position (updates every 30s)
-        const [nowTick, setNowTick] = useState(Date.now());
-        useEffect(function(){ const id=setInterval(function(){ setNowTick(Date.now()); }, 30000); return function(){ clearInterval(id); }; },[]);
-        // current minutes in selected TZ (simple hour offset from PT list)
-        const _now = new Date(nowTick);
-        const nowMin = ((_now.getHours()*60 + _now.getMinutes()) + tzOffset*60 + 1440) % 1440;
-        // is this grid's date today in selected TZ? (approximate by offsetting now by tzOffset)
-        const todayInTz = new Date(_now.getTime() + tzOffset*3600000);
-        const isToday = fmtYMD(date) === fmtYMD(todayInTz);
-        const nowLeft = (nowMin/totalMins)*100;
+        const [nowTick,setNowTick]=useState(Date.now());
+        useEffect(()=>{ const id=setInterval(()=>setNowTick(Date.now()),30000); return ()=>clearInterval(id); },[]);
+        const _now=new Date(nowTick);
+        const nowMin=((_now.getHours()*60+_now.getMinutes())+tzOffset*60+1440)%1440;
+        const todayInTz=new Date(_now.getTime()+tzOffset*3600000);
+        const isToday=fmtYMD(date)===fmtYMD(todayInTz);
+        const nowLeft=(nowMin/totalMins)*100;
 
         return (
           <div className="overflow-x-auto w-full">
-            {/* Header row */}
             <div className="grid sticky top-0 z-10" style={{gridTemplateColumns:`150px 1fr`}}>
               <div className={dark?"bg-neutral-900":"bg-white"}></div>
               <div className="relative" style={{height:70}}>
                 <div className="absolute top-2 left-0 right-0 text-center font-bold text-base">{dayKey} <span className={["ml-1",textSub].join(' ')}>{fmtYMD(date)}</span></div>
-                {/* Hour labels */}
                 <div className="absolute left-0 right-0" style={{top:38,height:16}}>
-                  {hourMarks.map(function(h,i){ return (
-                    <div key={i} className="absolute text-left pl-1 leading-none pointer-events-none" style={{ left: `${(i * 100) / 24}%`, width: `${100 / 24}%` }}>
+                  {hourMarks.map((h,i)=>(
+                    <div key={i} className="absolute text-left pl-1 leading-none pointer-events-none" style={{ left: `${(i*100)/24}%`, width: `${100/24}%` }}>
                       <div className={["text-[11px] font-medium",textSub].join(' ')}>{h===0?12:h>12?h-12:h}{h<12?"am":"pm"}</div>
                     </div>
-                  );})}
+                  ))}
                 </div>
                 {isToday && (
                   <div className="absolute inset-y-0 z-20 pointer-events-none" style={{ left: `${nowLeft}%` }}>
@@ -539,16 +433,11 @@
               </div>
             </div>
 
-            {/* Body rows */}
-            {orderedPeople.map(function(person){ return (
+            {orderedPeople.map(person=>(
               <div key={person} className="grid" style={{gridTemplateColumns:`150px 1fr`}}>
                 <div className={["py-1.5 pr-2 text-[13px] font-medium sticky left-0 z-10", dark?"bg-neutral-900":"bg-white"].join(' ')}>{person}</div>
-                <div className="relative h-7" style={{
-                  backgroundImage:`linear-gradient(to right, ${dark?'rgba(255,255,255,0.04)':'rgba(0,0,0,0.03)'} 0, ${dark?'rgba(255,255,255,0.04)':'rgba(0,0,0,0.03)'} 50%, ${dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.06)'} 50%, ${dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.06)'} 100%)`,
-                  backgroundSize:`calc(100%/24) 100%`, backgroundRepeat:'repeat-x', backgroundPosition:'0 0'
-                }}>
-                  {/* PTO veil */}
-                  {pto.some(function(p){return p.person===person && date>=parseYMD(p.startDate) && date<=parseYMD(p.endDate);}) && (
+                <div className="relative h-7" style={{backgroundImage:`linear-gradient(to right, ${dark?'rgba(255,255,255,0.04)':'rgba(0,0,0,0.03)'} 0, ${dark?'rgba(255,255,255,0.04)':'rgba(0,0,0,0.03)'} 50%, ${dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.06)'} 50%, ${dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.06)'} 100%)`, backgroundSize:`calc(100%/24) 100%`, backgroundRepeat:'repeat-x', backgroundPosition:'0 0'}}>
+                  {pto.some(p=>p.person===person && date>=parseYMD(p.startDate) && date<=parseYMD(p.endDate)) && (
                     <div className="absolute inset-y-1 left-0 right-0 rounded-md pointer-events-none" style={{background: dark?"rgba(255,255,255,.08)":"rgba(0,0,0,.05)"}} />
                   )}
 
@@ -558,78 +447,50 @@
                     </div>
                   )}
 
-                  {/* Shifts */}
-                  {shifts.filter(function(s){return s.person===person;}).map(function(s){
-                    const sMin=toMin(s.start); const eMinRaw=toMin(s.end); const eMin=eMinRaw>sMin?eMinRaw:1440; // clamp overnight
+                  {shifts.filter(s=>s.person===person).map(s=>{
+                    const sMin=toMin(s.start); const eMinRaw=toMin(s.end); const eMin=eMinRaw>sMin?eMinRaw:1440;
                     const left=(sMin/totalMins)*100; const width=Math.max(0.5, ((eMin-sMin)/totalMins)*100);
-                    const hueVal = colorMap.get(person);
-                    const H = (hueVal !== undefined ? hueVal : 0);
+                    const H = (colorMap.get(person) ?? 0);
                     const light=`hsla(${H},75%,70%,0.95)`; const darkbg=`hsla(${H},60%,28%,0.95)`; const darkbd=`hsl(${H},70%,55%)`;
                     return (
-                      <div key={s.id} className="absolute rounded text-[11px] border" style={{left:`${left}%`,width:`${width}%`,backgroundColor:dark?darkbg:light,borderColor:dark?darkbd:`hsl(${H},65%,50%)`,zIndex:1}}>
+                      <div key={s.id} className="absolute rounded text-[11px] border" style={{left:`${left}%`, width:`${width}%`, backgroundColor:dark?darkbg:light, borderColor:dark?darkbd:`hsl(${H},65%,50%)`, zIndex:1}}>
                         <div className="pl-3 pr-2 truncate" title={`${s.person} • ${s.start}-${s.end}`}>{s.start}-{s.end}</div>
                       </div>
                     );
                   })}
                 </div>
               </div>
-            );})}
+            ))}
           </div>
         );
       }
 
-      // === Tests ===
       function runTests(){
-        // keep existing style and add more coverage
         console.assert(toMin('00:30')===30,'toMin');
         console.assert(minToHHMM(90)==='01:30','minToHHMM');
-        const g=generateSample();
-        console.assert(Array.isArray(g.shifts)&&Array.isArray(g.pto),'sample');
-        const dow = startOfWeek(new Date('2025-08-20'));
-        console.assert(dow.getDay()===1,'startOfWeekMonday');
-        const dt = new Date('2025-01-03');
-        const s = fmtYMD(dt);
-        console.assert(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(s),'fmtYMDFormat');
-
-        // additional tests
+        const g=generateSample(); console.assert(Array.isArray(g.shifts)&&Array.isArray(g.pto),'sample');
+        const dow=startOfWeek(new Date('2025-08-20')); console.assert(dow.getDay()===1,'startOfWeekMonday');
+        const dt=new Date('2025-01-03'); const s=fmtYMD(dt); console.assert(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(s),'fmtYMDFormat');
         console.assert(toMin('24:00')===1440,'toMin 24:00');
         console.assert(minToHHMM(-30)==='23:30','minToHHMM negative wrap');
-        const iw = isoWeek(new Date('2021-01-04')); // Monday, ISO week 1 of 2021
-        console.assert(iw.year===2021 && iw.week===1, 'isoWeek baseline');
-        const _ordered=['A','B','C'];
-        const _m=new Map();
-        const n=Math.max(1,_ordered.length); _ordered.forEach(function(p,i){ const h=Math.round((i/n)*360); _m.set(p,h); });
-        console.assert(_m.size===3 && typeof _m.get('A')==='number','colorMap sizing');
+        const iw=isoWeek(new Date('2021-01-04')); console.assert(iw.year===2021 && iw.week===1, 'isoWeek baseline');
+        const _ordered=['A','B','C']; const _m=new Map(); const n=Math.max(1,_ordered.length); _ordered.forEach((p,i)=>{ const h=Math.round((i/n)*360); _m.set(p,h); }); console.assert(_m.size===3 && typeof _m.get('A')==='number','colorMap sizing');
         console.assert(isValidHHMM('00:00') && isValidHHMM('23:59') && isValidHHMM('24:00') && !isValidHHMM('24:01') && !isValidHHMM('25:00'), 'isValidHHMM');
         console.assert(!isValidHHMM('12:60') && !isValidHHMM('ab:cd'), 'isValidHHMM edge cases');
-
-        // duplicate detection
-        const _dupa = {person:'X', day:'Mon', start:'09:00', end:'17:00'};
-        const _dupb = {person:'X', day:'Mon', start:'09:00', end:'17:00'};
-        console.assert(shiftKey(_dupa)===shiftKey(_dupb), 'shiftKey equality for dupes');
-        const _arr=[_dupa];
-        console.assert(_arr.some(function(s){return shiftKey(s)===shiftKey(_dupb);}), 'duplicate detection via key');
+        const _dupa={person:'X', day:'Mon', start:'09:00', end:'17:00'}; const _dupb={person:'X', day:'Mon', start:'09:00', end:'17:00'}; console.assert(shiftKey(_dupa)===shiftKey(_dupb),'shiftKey equality'); const _arr=[_dupa]; console.assert(_arr.some(s=>shiftKey(s)===shiftKey(_dupb)),'dup detect');
       }
 
-      // === Classnames helper ===
-      function cls(){
-        const out=[]; for(let i=0;i<arguments.length;i++){ const v=arguments[i]; if(!v) continue; if(typeof v==="string") out.push(v); }
-        return out.join(' ');
-      }
-
-      // === UI Helpers ===
       function DayPills({ value, onChange, dark }){
-        // value is a Set of day strings
         function toggle(d){ const n=new Set(value); if(n.has(d)) n.delete(d); else n.add(d); onChange(n); }
         return (
           <div className="flex flex-wrap gap-2">
-            {DAYS.map(function(d){
-              const active = value.has(d);
-              const base = "px-3 py-1.5 rounded-full border text-sm leading-none";
-              const activeCls = dark?"bg-neutral-800 border-neutral-600 text-white":"bg-blue-600 border-blue-600 text-white";
-              const idleCls = dark?"border-neutral-700 text-neutral-200 hover:bg-neutral-900":"border-neutral-300 text-neutral-700 hover:bg-neutral-100";
+            {DAYS.map(d=>{
+              const active=value.has(d);
+              const base="px-3 py-1.5 rounded-full border text-sm leading-none";
+              const activeCls=dark?"bg-neutral-800 border-neutral-600 text-white":"bg-blue-600 border-blue-600 text-white";
+              const idleCls=dark?"border-neutral-700 text-neutral-200 hover:bg-neutral-900":"border-neutral-300 text-neutral-700 hover:bg-neutral-100";
               return (
-                <button key={d} type="button" aria-pressed={active} onClick={function(){toggle(d);}} className={[base, active?activeCls:idleCls].join(' ')}>{d}</button>
+                <button key={d} type="button" aria-pressed={active} onClick={()=>toggle(d)} className={[base, active?activeCls:idleCls].join(' ')}>{d}</button>
               );
             })}
           </div>
