@@ -8,7 +8,13 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <style>html, body, #root { height: 100%; }</style>
+    <style>
+      html, body, #root { height: 100%; }
+      /* Ensure hour numbers align crisply at the start of each column */
+      .hour-label{ font-variant-numeric: tabular-nums; letter-spacing: 0; }
+      /* Avoid text selection while dragging across the grid */
+      .no-select{ -webkit-user-select:none; -moz-user-select:none; user-select:none; }
+    </style>
   </head>
   <body class="min-h-screen">
     <!-- Configure API base + write password -->
@@ -24,6 +30,7 @@
 
       // === Constants ===
       const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+      const COLS = 24; // single-hour columns
       const TZ_OPTS = [
         { id: "America/Los_Angeles", label: "PT", offset: 0 },
         { id: "America/Denver", label: "MT", offset: 1 },
@@ -55,7 +62,7 @@
       function fmtNice(d){ return d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}); }
 
       // Hour labels helper: rotate labels by tz offset only (do not move data/now-line)
-      function hourMarksForOffset(offset){ return Array.from({length:24},(_,i)=> (i + offset + 24) % 24); }
+      function hourMarksForOffset(offset){ return Array.from({length:COLS},(_,i)=> (i + offset + COLS) % COLS); }
 
       function isValidHHMM(v){
         if(!/^\d{2}:\d{2}$/.test(v)) return false;
@@ -222,13 +229,13 @@
                     <button
                       role="switch"
                       aria-checked={editMode}
-                      onClick={()=>{
+                      onClick()=>{
                         if (!canEdit) {
                           alert('Enter the password in Manage to enable editing.');
                           return;
                         }
                         setEditMode(v=>!v);
-                      }}
+                      }
                       className={[
                         "w-12 h-7 rounded-full border relative transition",
                         dark ? "bg-neutral-700 border-neutral-600" : "bg-neutral-300 border-neutral-400",
@@ -522,7 +529,6 @@
       }
 
       // === Day Grid ===
-      // === Day Grid ===
       function DayGrid({ date, dayKey, people, shifts, pto, dark, tz, canEdit, editMode, onRemove }){
         const totalMins=24*60;
         const tzOffset = tz.offset;
@@ -551,7 +557,7 @@
         const nowLeft=(nowMin/totalMins)*100;
       
         return (
-          <div className="overflow-x-auto w-full">
+          <div className="overflow-x-auto w-full no-select">
             {/* Header row */}
             <div className="grid sticky top-0 z-10" style={{gridTemplateColumns:`150px 1fr`}}>
               <div className={dark?"bg-neutral-900":"bg-white"}></div>
@@ -561,8 +567,8 @@
                 </div>
                 <div className="absolute left-0 right-0" style={{top:38,height:16}}>
                   {hourMarks.map((h,i)=> (
-                    <div key={i} className="absolute text-left pl-1 leading-none pointer-events-none" style={{ left: `${(i * 100) / 24}%`, width: `${100 / 24}%` }}>
-                      <div className={["text-[11px] font-medium",textSub].join(' ')}>
+                    <div key={i} className="absolute text-left pl-1 leading-none pointer-events-none" style={{ left: `calc(${i} * (100% / ${COLS}))`, width: `calc(100% / ${COLS})` }}>
+                      <div className={["text-[11px] font-medium hour-label",textSub].join(' ')}>
                         {h===0?12:h>12?h-12:h}{h<12?"am":"pm"}
                       </div>
                     </div>
@@ -586,7 +592,7 @@
                 <div className={["py-1.5 pr-2 text-[13px] font-medium sticky left-0 z-10", dark?"bg-neutral-900":"bg-white"].join(' ')}>{person}</div>
                 <div className="relative h-7" style={{
                   backgroundImage:`linear-gradient(to right, ${dark?'rgba(255,255,255,0.04)':'rgba(0,0,0,0.03)'} 0, ${dark?'rgba(255,255,255,0.04)':'rgba(0,0,0,0.03)'} 50%, ${dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.06)'} 50%, ${dark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.06)'} 100%)`,
-                  backgroundSize:`calc(100%/24) 100%`, backgroundRepeat:'repeat-x', backgroundPosition:'0 0'
+                  backgroundSize:`calc(100%/${COLS}) 100%`, backgroundRepeat:'repeat-x', backgroundPosition:'0 0'
                 }}>
                   {/* PTO veil */}
                   {pto.some(p=>p.person===person && date>=parseYMD(p.startDate) && date<=parseYMD(p.endDate)) && (
@@ -643,7 +649,7 @@
         console.assert(isValidHHMM('00:00') && isValidHHMM('23:59') && isValidHHMM('24:00') && !isValidHHMM('24:01') && !isValidHHMM('25:00'), 'isValidHHMM');
         console.assert(!isValidHHMM('12:60') && !isValidHHMM('ab:cd'), 'isValidHHMM edge cases');
         const _dupa={person:'X', day:'Mon', start:'09:00', end:'17:00'}; const _dupb={person:'X', day:'Mon', start:'09:00', end:'17:00'}; console.assert(shiftKey(_dupa)===shiftKey(_dupb),'shiftKey equality'); const _arr=[_dupa]; console.assert(_arr.some(s=>shiftKey(s)===shiftKey(_dupb)),'dup detect');
-        const _hm = hourMarksForOffset(3); console.assert(_hm.length===24 && _hm[0]===3 && _hm[23]===2, 'hourMarksForOffset');
+        const _hm = hourMarksForOffset(3); console.assert(_hm.length===COLS && _hm[0]===3 && _hm[COLS-1]===2, 'hourMarksForOffset');
       }
 
       // === UI Helpers ===
