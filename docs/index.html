@@ -136,6 +136,15 @@
             setCanEdit(saved === expected);
           } catch { setCanEdit(false); }
         })(); },[view]);
+
+        useEffect(()=>{ (async()=>{
+          const expected = await sha256Hex(WRITE_PASS);
+          const saved = localStorage.getItem('schedule_pw_hash');
+          const ok = saved === expected;
+          setCanEdit(ok);
+          console.log('[schedule] canEdit:', ok, 'saved:', saved && saved.slice(0,8)+'…');
+        })() }, [view]);
+
       
         // ⬇️ NEW: shared remover (used by Schedule view too)
         const handleRemoveShift = (id) => setShifts(prev => prev.filter(s => s.id !== id));
