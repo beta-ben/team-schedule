@@ -229,13 +229,13 @@
                     <button
                       role="switch"
                       aria-checked={editMode}
-                      onClick()=>{
+                      onClick={()=>{
                         if (!canEdit) {
                           alert('Enter the password in Manage to enable editing.');
                           return;
                         }
                         setEditMode(v=>!v);
-                      }
+                      }}
                       className={[
                         "w-12 h-7 rounded-full border relative transition",
                         dark ? "bg-neutral-700 border-neutral-600" : "bg-neutral-300 border-neutral-400",
