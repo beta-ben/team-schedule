@@ -10,5 +10,3 @@ Static deploy bundle generated 2025-08-24T00:45:23.648888Z
 
 Site will be live at `https://<your-username>.github.io/<repo-name>/`.
 
-## Password
-Client-side gate; password is **betacares**.
