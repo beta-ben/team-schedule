@@ -71,6 +71,8 @@
       function minToHHMM(min){ const m=((min%1440)+1440)%1440; const h=Math.floor(m/60); const mm=m%60; return `${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}`; }
       function isoWeek(date){ const d=new Date(Date.UTC(date.getFullYear(),date.getMonth(),date.getDate())); const dayNum=d.getUTCDay()||7; d.setUTCDate(d.getUTCDate()+4-dayNum); const yearStart=new Date(Date.UTC(d.getUTCFullYear(),0,1)); const week=Math.ceil(((((d-yearStart)/86400000)+1)/7)); return {year:d.getUTCFullYear(),week}; }
       function fmtNice(d){ return d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}); }
+      // Hour labels helper: shift labels by a timezone offset without moving data or the now-line
+      function hourMarksForOffset(offset){ return Array.from({length:24}, (_, i) => (i + offset + 24) % 24); }
       function isValidHHMM(v){ if(!/^\d{2}:\d{2}$/.test(v)) return false; const [h,m]=v.split(":").map(Number); if(h<0||h>24) return false; if(m<0||m>59) return false; if(h===24&&m!==0) return false; return true; }
       function shiftKeyOf(person,day,start,end){ return person+"|"+day+"|"+start+"|"+end; }
       function shiftKey(s){ return shiftKeyOf(s.person,s.day,s.start,s.end); }
@@ -400,7 +402,7 @@
       function DayGrid({ date, dayKey, people, shifts, pto, dark, tz }){
         const totalMins=24*60;
         const tzOffset=tz.offset;
-        const hourMarks=Array.from({length:24},(_,i)=>(i+tzOffset)%24);
+        const hourMarks = hourMarksForOffset(tzOffset);
         const textSub=dark?"text-neutral-400":"text-neutral-500";
 
         const orderedPeople=useMemo(()=>{ const firstStart=new Map(); people.forEach(p=>{ const starts=shifts.filter(s=>s.person===p).map(s=>toMin(s.start)); if(starts.length) firstStart.set(p, Math.min(...starts)); }); return Array.from(firstStart.entries()).sort((a,b)=>a[1]-b[1]||a[0].localeCompare(b[0])).map(([p])=>p); },[people,shifts]);
@@ -409,11 +411,13 @@
 
         const [nowTick,setNowTick]=useState(Date.now());
         useEffect(()=>{ const id=setInterval(()=>setNowTick(Date.now()),30000); return ()=>clearInterval(id); },[]);
-        const _now=new Date(nowTick);
-        const nowMin=((_now.getHours()*60+_now.getMinutes())+tzOffset*60+1440)%1440;
-        const todayInTz=new Date(_now.getTime()+tzOffset*3600000);
-        const isToday=fmtYMD(date)===fmtYMD(todayInTz);
-        const nowLeft=(nowMin/totalMins)*100;
+        const _now = new Date(nowTick);
+        
+        // Now-line should reflect actual local current time, independent of tz label selection
+        const nowMin = _now.getHours()*60 + _now.getMinutes();
+        const isToday = fmtYMD(date) === fmtYMD(_now);
+        const nowLeft = (nowMin/totalMins)*100;
+
 
         return (
           <div className="overflow-x-auto w-full">
@@ -482,6 +486,8 @@
         console.assert(isValidHHMM('00:00') && isValidHHMM('23:59') && isValidHHMM('24:00') && !isValidHHMM('24:01') && !isValidHHMM('25:00'), 'isValidHHMM');
         console.assert(!isValidHHMM('12:60') && !isValidHHMM('ab:cd'), 'isValidHHMM edge cases');
         const _dupa={person:'X', day:'Mon', start:'09:00', end:'17:00'}; const _dupb={person:'X', day:'Mon', start:'09:00', end:'17:00'}; console.assert(shiftKey(_dupa)===shiftKey(_dupb),'shiftKey equality'); const _arr=[_dupa]; console.assert(_arr.some(s=>shiftKey(s)===shiftKey(_dupb)),'dup detect');
+        const _hm = hourMarksForOffset(3);
+        console.assert(_hm.length===24 && _hm[0]===3 && _hm[23]===2, 'hourMarksForOffset');
       }
 
       function DayPills({ value, onChange, dark }){
