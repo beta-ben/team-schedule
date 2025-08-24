@@ -131,14 +131,6 @@
         const [editMode, setEditMode] = useState(false);
         useEffect(()=>{ (async()=>{
           const expected = await sha256Hex(WRITE_PASS);
-          try {
-            const saved = localStorage.getItem('schedule_pw_hash');
-            setCanEdit(saved === expected);
-          } catch { setCanEdit(false); }
-        })(); },[view]);
-
-        useEffect(()=>{ (async()=>{
-          const expected = await sha256Hex(WRITE_PASS);
           const saved = localStorage.getItem('schedule_pw_hash');
           const ok = saved === expected;
           setCanEdit(ok);
